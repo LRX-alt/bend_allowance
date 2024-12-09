@@ -1,11 +1,10 @@
 <template>
   <div class="calcolatore">
-    <!-- Intestazione -->
     <header>
       <h1>Calcolatore Sviluppo Lamiera</h1>
     </header>
 
-    <!-- Sezione Parametri Generali -->
+    <!-- Parametri Generali -->
     <section class="parametri">
       <h2>Parametri Generali</h2>
       <div class="form-row">
@@ -35,13 +34,20 @@
       </div>
     </section>
 
-    <!-- Sezione Segmenti -->
+    <!-- Segmenti -->
     <section class="segmenti">
       <h2>Segmenti</h2>
       <div v-for="(segment, index) in segments" :key="index" class="segmento">
         <div class="form-row">
           <label>Lunghezza segmento {{ index + 1 }} (mm):</label>
-          <input v-model.number="segment.length" type="number" step="0.1" min="0.1" required @input="validaLunghezza(segment); calcolaSviluppo()" />
+          <input 
+            v-model.number="segment.length" 
+            type="number" 
+            step="0.1" 
+            min="0.1" 
+            required 
+            @input="validaLunghezza(segment)" 
+          />
           <p v-if="segment.errorLength" class="error-message">La lunghezza deve essere maggiore di 0.</p>
         </div>
         <div class="form-row">
@@ -52,14 +58,14 @@
             step="1"
             min="-180"
             max="180"
-            @input="validaAngolo(segment); calcolaSviluppo()"
+            @input="validaAngolo(segment)"
             required
           />
           <p v-if="segment.errorAngle" class="error-message">Angolo non valido! Deve essere tra -180° e 180°.</p>
         </div>
         <div class="form-row">
           <label>Tipologia di piega:</label>
-          <select v-model="segment.tipoPiega" @change="calcolaSviluppo()">
+          <select v-model="segment.tipoPiega">
             <option value="su">In su</option>
             <option value="giu">In giù</option>
           </select>
@@ -73,13 +79,13 @@
       <button type="button" @click="aggiungiLato" class="btn-add">Aggiungi Segmento</button>
     </section>
 
-    <!-- Pulsante Esporta Disegno -->
+    <!-- Esporta -->
     <section class="esporta">
       <button type="button" @click="esportaPDF" class="btn-export">Esporta come PDF</button>
       <button type="button" @click="esportaDXF" class="btn-export">Esporta come DXF</button>
     </section>
 
-    <!-- Sezione Anteprima Grafica -->
+    <!-- Anteprima Grafica -->
     <section class="anteprima">
       <h2>Anteprima Grafica</h2>
       <div class="canvas-wrapper">
@@ -88,22 +94,26 @@
       <div class="zoom-controls">
         <label>Zoom:</label>
         <input type="range" min="0.5" max="5" step="0.1" v-model.number="scale" @input="disegnaAnteprima" />
+        <button type="button" @click="resetView">Reset View</button>
       </div>
     </section>
 
-    <!-- Sezione Risultati -->
-    <section class="risultati" v-if="risultato !== null">
+    <!-- Risultati (con BA, SB, BD) -->
+    <section class="risultati" v-if="dettagli && dettagli.length > 0">
       <h2>Risultati</h2>
       <p><strong>Lunghezza totale di taglio:</strong> {{ risultato.toFixed(2) }} mm</p>
       <ul>
         <li v-for="(dettaglio, index) in dettagli" :key="index">
-          Segmento {{ dettaglio.segmento }}: Lunghezza Effettiva: {{ dettaglio.lunghezzaEffettiva.toFixed(2) }} mm,
-          Bend Allowance: {{ dettaglio.bendAllowance.toFixed(2) }} mm
+          <strong>Segmento {{ dettaglio.segmento }}:</strong><br>
+          Lunghezza Effettiva: {{ dettaglio.lunghezzaEffettiva.toFixed(2) }} mm<br>
+          Bend Allowance: {{ dettaglio.bendAllowance ? dettaglio.bendAllowance.toFixed(2) : 'N/A' }} mm<br>
+          Setback: {{ dettaglio.setback ? dettaglio.setback.toFixed(2) : 'N/A' }} mm<br>
+          Bend Deduction: {{ dettaglio.bendDeduction ? dettaglio.bendDeduction.toFixed(2) : 'N/A' }} mm
         </li>
       </ul>
     </section>
 
-    <!-- Sezione Riepilogo Visivo delle Dimensioni -->
+    <!-- Riepilogo dimensioni -->
     <section class="riepilogo-dimensioni" v-if="segments.length > 0">
       <h2>Riepilogo Visivo delle Dimensioni</h2>
       <div class="riepilogo">
@@ -120,6 +130,7 @@
 <script>
 import jsPDF from 'jspdf';
 import { saveAs } from 'file-saver';
+import { calcolaDettagliSegmenti } from './BendingCalculator.js';
 
 export default {
   data() {
@@ -137,9 +148,7 @@ export default {
         nome: '',
         fattoreK: 0,
       },
-      segments: [], // Nessun segmento predefinito
-      risultato: null,
-      dettagli: [],
+      segments: [],
       scale: 1,
       panX: 0,
       panY: 0,
@@ -151,10 +160,31 @@ export default {
       },
     };
   },
+  computed: {
+    dettagli() {
+      // Computed che sfrutta la funzione di calcolo esterna
+      const { dettagli } = calcolaDettagliSegmenti(
+        this.segments,
+        this.spessore,
+        this.raggioPiega,
+        this.fattoreK
+      );
+      return dettagli;
+    },
+    risultato() {
+      // Computed per lo sviluppo totale
+      const { sviluppoTotale } = calcolaDettagliSegmenti(
+        this.segments,
+        this.spessore,
+        this.raggioPiega,
+        this.fattoreK
+      );
+      return sviluppoTotale;
+    },
+  },
   methods: {
     aggiornaFattoreK() {
       this.fattoreK = this.fattoriKMateriali[this.materialeSelezionato] || 0.33;
-      this.calcolaSviluppo();
     },
     aggiungiMateriale() {
       if (this.nuovoMateriale.nome && this.nuovoMateriale.fattoreK > 0) {
@@ -166,20 +196,16 @@ export default {
     aggiungiLato() {
       this.segments = [...this.segments, { length: 50, angle: 90, tipoPiega: 'su', errorLength: false, errorAngle: false }];
       this.disegnaAnteprima();
-      this.calcolaSviluppo();
     },
     rimuoviLato(index) {
       this.segments.splice(index, 1);
       this.disegnaAnteprima();
-      this.calcolaSviluppo();
     },
     validaSpessore() {
       this.errors.spessore = this.spessore <= 0;
-      this.calcolaSviluppo();
     },
     validaRaggioPiega() {
       this.errors.raggioPiega = this.raggioPiega < 0;
-      this.calcolaSviluppo();
     },
     validaLunghezza(segment) {
       segment.errorLength = segment.length <= 0;
@@ -196,22 +222,19 @@ export default {
       ctx.translate(this.panX, this.panY);
       ctx.scale(this.scale, this.scale);
 
-      const xStart = canvas.width / 2 / this.scale; // Punto iniziale x centrato
-      const yStart = canvas.height / 2 / this.scale; // Punto iniziale y centrato verticalmente
+      const xStart = canvas.width / 2 / this.scale;
+      const yStart = canvas.height / 2 / this.scale;
       let x = xStart;
       let y = yStart;
-      let angoloCorrente = 0; // Inizia orizzontalmente
+      let angoloCorrente = 0;
 
-      // Disegna ogni segmento
       for (let i = 0; i < this.segments.length; i++) {
         const segmento = this.segments[i];
         const lunghezza = segmento.length;
 
-        // Calcola il punto finale
         const x2 = x + lunghezza * Math.cos((angoloCorrente * Math.PI) / 180);
         const y2 = y - lunghezza * Math.sin((angoloCorrente * Math.PI) / 180);
 
-        // Disegna la linea
         ctx.beginPath();
         ctx.moveTo(x, y);
         ctx.lineTo(x2, y2);
@@ -219,7 +242,6 @@ export default {
         ctx.lineWidth = 2;
         ctx.stroke();
 
-        // Disegna un cerchio per i punti di piega (ogni piega tra segmenti)
         if (i > 0) {
           ctx.beginPath();
           ctx.arc(x, y, 5, 0, 2 * Math.PI);
@@ -227,57 +249,20 @@ export default {
           ctx.fill();
         }
 
-        // Aggiorna il punto iniziale
         x = x2;
         y = y2;
 
-        // Aggiorna l'angolo corrente
         if (segmento.angle) {
           angoloCorrente += segmento.angle * (segmento.tipoPiega === 'su' ? 1 : -1);
         }
       }
       ctx.restore();
     },
-    calcolaSviluppo() {
-      let sviluppoTotale = 0;
-      this.dettagli = [];
-
-      for (let i = 0; i < this.segments.length; i++) {
-        const segmento = this.segments[i];
-        let lunghezzaEffettiva = segmento.length;
-
-        if (i > 0 && segmento.angle >= 0 && segmento.angle <= 80) {
-          lunghezzaEffettiva = segmento.length;
-        } else if (i === 0 || i === this.segments.length - 1) {
-          lunghezzaEffettiva -= this.spessore;
-        } else {
-          lunghezzaEffettiva -= 2 * this.spessore;
-        }
-
-        let bendAllowance = 0;
-        if (i > 0) {
-          const angolo = segmento.angle;
-          bendAllowance = this.calcolaBendAllowance(
-            angolo,
-            this.fattoreK,
-            this.spessore,
-            this.raggioPiega
-          );
-        }
-
-        sviluppoTotale += lunghezzaEffettiva + bendAllowance;
-
-        this.dettagli.push({
-          segmento: i + 1,
-          lunghezzaEffettiva,
-          bendAllowance,
-        });
-      }
-
-      this.risultato = sviluppoTotale;
-    },
-    calcolaBendAllowance(angolo, fattoreK, spessore, raggioPiega) {
-      return ((Math.PI / 180) * angolo) * (raggioPiega + fattoreK * spessore);
+    resetView() {
+      this.panX = 0;
+      this.panY = 0;
+      this.scale = 1;
+      this.disegnaAnteprima();
     },
     esportaPDF() {
       const doc = new jsPDF();
@@ -316,7 +301,7 @@ export default {
         y = y2;
 
         if (segmento.angle) {
-                   angoloCorrente += segmento.angle * (segmento.tipoPiega === 'su' ? 1 : -1);
+          angoloCorrente += segmento.angle * (segmento.tipoPiega === 'su' ? 1 : -1);
         }
       }
 
@@ -349,7 +334,7 @@ export default {
     segments: {
       handler() {
         this.disegnaAnteprima();
-        this.calcolaSviluppo();
+        // Ora non chiamiamo più calcolaSviluppo qui, è fatto dalle computed.
       },
       deep: true,
     },
@@ -373,6 +358,7 @@ export default {
 </script>
 
 <style scoped>
+/* Stili rimangono simili a prima */
 .calcolatore {
   max-width: 800px;
   margin: 0 auto;
@@ -397,16 +383,26 @@ section {
 }
 
 .canvas-wrapper {
-  overflow: hidden;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  overflow: auto;
   border: 1px solid #ddd;
   background: #fff;
-  display: block;
   margin: 0 auto;
   cursor: grab;
+  max-width: 100%;
 }
 
 canvas {
   display: block;
+}
+
+@media (max-width: 600px) {
+  canvas {
+    width: 100%;
+    height: auto;
+  }
 }
 
 .zoom-controls {
