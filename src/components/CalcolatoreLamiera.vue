@@ -8,12 +8,12 @@
     <section class="parametri">
       <h2>Parametri Generali</h2>
       <div class="form-row">
-        <label>Spessore lamiera (mm):</label>
+        <label>Spessore lamiera (mm) (T):</label>
         <input v-model.number="spessore" type="number" step="0.1" min="0.1" required @input="validaSpessore" />
         <p v-if="errors.spessore" class="error-message">Il valore dello spessore deve essere maggiore di 0.</p>
       </div>
       <div class="form-row">
-        <label>Raggio di piega (mm):</label>
+        <label>Raggio di piega (mm) (R):</label>
         <input v-model.number="raggioPiega" type="number" step="0.1" min="0" required @input="validaRaggioPiega" />
         <p v-if="errors.raggioPiega" class="error-message">Il raggio di piega non può essere negativo.</p>
       </div>
@@ -21,16 +21,20 @@
         <label>Materiale:</label>
         <select v-model="materialeSelezionato" @change="aggiornaFattoreK" required>
           <option disabled value="">Seleziona un materiale</option>
-          <option v-for="(fattoreK, materiale) in fattoriKMateriali" :key="materiale" :value="materiale">
-            {{ materiale }} (K = {{ fattoreK }})
+          <option v-for="(kValue, mat) in fattoriKMateriali" :key="mat" :value="mat">
+            {{ mat }} (K = {{ kValue }})
           </option>
         </select>
       </div>
       <div class="form-row">
-        <label>Aggiungi nuovo materiale:</label>
-        <input v-model="nuovoMateriale.nome" type="text" placeholder="Nome materiale" />
-        <input v-model.number="nuovoMateriale.fattoreK" type="number" step="0.01" min="0" placeholder="Fattore K" />
-        <button type="button" @click="aggiungiMateriale" class="btn-add-materiale">Aggiungi Materiale</button>
+        <label>Fattore K (manuale):</label>
+        <input v-model.number="fattoreK" type="number" step="0.01" min="0" max="1"/>
+        <p class="hint">Puoi selezionare un materiale o modificare manualmente il fattore K.</p>
+      </div>
+      <div class="form-row">
+        <label>Usa Fattore K Dinamico: </label>
+        <input type="checkbox" v-model="fattoreKDinamico" />
+        <p class="hint">Se attivo, K viene calcolato in base a R e T.</p>
       </div>
     </section>
 
@@ -71,18 +75,10 @@
           </select>
         </div>
         <div class="form-actions">
-          <button type="button" @click="rimuoviLato(index)" class="btn-remove">
-            Rimuovi Segmento
-          </button>
+          <button type="button" @click="rimuoviLato(index)" class="btn-remove">Rimuovi Segmento</button>
         </div>
       </div>
       <button type="button" @click="aggiungiLato" class="btn-add">Aggiungi Segmento</button>
-    </section>
-
-    <!-- Esporta -->
-    <section class="esporta">
-      <button type="button" @click="esportaPDF" class="btn-export">Esporta come PDF</button>
-      <button type="button" @click="esportaDXF" class="btn-export">Esporta come DXF</button>
     </section>
 
     <!-- Anteprima Grafica -->
@@ -98,7 +94,7 @@
       </div>
     </section>
 
-    <!-- Risultati (con BA, SB, BD) -->
+    <!-- Risultati -->
     <section class="risultati" v-if="dettagli && dettagli.length > 0">
       <h2>Risultati</h2>
       <p><strong>Lunghezza totale di taglio:</strong> {{ risultato.toFixed(2) }} mm</p>
@@ -124,13 +120,14 @@
         </ul>
       </div>
     </section>
+
   </div>
 </template>
 
 <script>
 import jsPDF from 'jspdf';
 import { saveAs } from 'file-saver';
-import { calcolaDettagliSegmenti } from './BendingCalculator.js';
+import { calcolaDettagliSegmenti } from '../utils/BendingCalculator.js';
 
 export default {
   data() {
@@ -158,26 +155,34 @@ export default {
         spessore: false,
         raggioPiega: false,
       },
+      fattoreKDinamico: false, // Switch per modalità dinamica del fattore K
     };
   },
   computed: {
+    fattoreKEffettivo() {
+      if (this.fattoreKDinamico) {
+        // Formula di esempio per K dinamico
+        const rapporto = (this.spessore > 0 && this.raggioPiega > 0) ? this.raggioPiega / this.spessore : 0;
+        return 0.33 + rapporto * 0.05; 
+      } else {
+        return this.fattoreK;
+      }
+    },
     dettagli() {
-      // Computed che sfrutta la funzione di calcolo esterna
       const { dettagli } = calcolaDettagliSegmenti(
         this.segments,
         this.spessore,
         this.raggioPiega,
-        this.fattoreK
+        this.fattoreKEffettivo
       );
       return dettagli;
     },
     risultato() {
-      // Computed per lo sviluppo totale
       const { sviluppoTotale } = calcolaDettagliSegmenti(
         this.segments,
         this.spessore,
         this.raggioPiega,
-        this.fattoreK
+        this.fattoreKEffettivo
       );
       return sviluppoTotale;
     },
@@ -264,6 +269,25 @@ export default {
       this.scale = 1;
       this.disegnaAnteprima();
     },
+    handleWheel(event) {
+      event.preventDefault();
+      const scaleAmount = -event.deltaY * 0.001;
+      this.scale = Math.min(Math.max(this.scale + scaleAmount, 0.5), 5);
+      this.disegnaAnteprima();
+    },
+    handleMouseDown(event) {
+      this.isPanning = true;
+      this.startPan = { x: event.clientX - this.panX, y: event.clientY - this.panY };
+    },
+    handleMouseMove(event) {
+      if (!this.isPanning) return;
+      this.panX = event.clientX - this.startPan.x;
+      this.panY = event.clientY - this.startPan.y;
+      this.disegnaAnteprima();
+    },
+    handleMouseUp() {
+      this.isPanning = false;
+    },
     esportaPDF() {
       const doc = new jsPDF();
       doc.text("Calcolatore Sviluppo Lamiera - Risultati", 10, 10);
@@ -310,31 +334,11 @@ export default {
       const blob = new Blob([dxfContent], { type: "application/dxf" });
       saveAs(blob, "sviluppo_lamiera.dxf");
     },
-    handleWheel(event) {
-      event.preventDefault();
-      const scaleAmount = -event.deltaY * 0.001;
-      this.scale = Math.min(Math.max(this.scale + scaleAmount, 0.5), 5);
-      this.disegnaAnteprima();
-    },
-    handleMouseDown(event) {
-      this.isPanning = true;
-      this.startPan = { x: event.clientX - this.panX, y: event.clientY - this.panY };
-    },
-    handleMouseMove(event) {
-      if (!this.isPanning) return;
-      this.panX = event.clientX - this.startPan.x;
-      this.panY = event.clientY - this.startPan.y;
-      this.disegnaAnteprima();
-    },
-    handleMouseUp() {
-      this.isPanning = false;
-    },
   },
   watch: {
     segments: {
       handler() {
         this.disegnaAnteprima();
-        // Ora non chiamiamo più calcolaSviluppo qui, è fatto dalle computed.
       },
       deep: true,
     },
@@ -358,7 +362,6 @@ export default {
 </script>
 
 <style scoped>
-/* Stili rimangono simili a prima */
 .calcolatore {
   max-width: 800px;
   margin: 0 auto;
@@ -380,6 +383,39 @@ section {
   background: #fff;
   border: 1px solid #ddd;
   border-radius: 6px;
+}
+
+.form-row {
+  margin-bottom: 10px;
+}
+
+.btn-add,
+.btn-remove,
+.btn-export {
+  background: #007bff;
+  color: white;
+  border: none;
+  padding: 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-top: 10px;
+}
+
+.btn-remove {
+  background: #dc3545;
+  margin-top: 5px;
+}
+
+.btn-add:hover,
+.btn-remove:hover,
+.btn-export:hover {
+  background: #0056b3;
+}
+
+.error-message {
+  color: red;
+  font-size: 0.9em;
+  margin-top: 5px;
 }
 
 .canvas-wrapper {
@@ -410,37 +446,9 @@ canvas {
   margin-top: 10px;
 }
 
-.btn-add,
-.btn-remove,
-.btn-calculate,
-.btn-add-materiale,
-.btn-export {
-  background: #007bff;
-  color: white;
-  border: none;
-  padding: 10px;
-  border-radius: 4px;
-  cursor: pointer;
-  margin-top: 10px;
-}
-
-.btn-remove {
-  background: #dc3545;
-  margin-top: 5px;
-}
-
-.btn-add:hover,
-.btn-remove:hover,
-.btn-calculate:hover,
-.btn-add-materiale:hover,
-.btn-export:hover {
-  background: #0056b3;
-}
-
-.error-message {
-  color: red;
-  font-size: 0.9em;
-  margin-top: 5px;
+.hint {
+  font-size: 0.85em;
+  color: #666;
 }
 
 .riepilogo {
