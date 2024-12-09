@@ -1,16 +1,15 @@
 // BendingCalculator.js
-// Qui spostiamo tutta la logica di calcolo delle pieghe della lamiera.
-// In questo modo il componente rimane più pulito e testabile separatamente.
+// Questo file contiene le funzioni per il calcolo della bend allowance, setback e dettagli segmenti.
 
 export function calcolaBendAllowance(angolo, fattoreK, spessore, raggioPiega) {
-  // angolo in gradi
-  // BA = (angolo in radianti) * (R + K*T)
+  // angolo in gradi, convertiamo in radianti
   const angoloRad = (Math.PI / 180) * angolo;
+  // Formula classica: BA = angoloRad * (R + K*T)
   return angoloRad * (raggioPiega + fattoreK * spessore);
 }
 
 export function calcolaSetback(angolo, spessore, raggioPiega) {
-  // SB = (R+T)*tan(angolo/2)
+  // SB = (R + T)*tan(angolo/2)
   const angoloRad = (Math.PI / 180) * angolo;
   return (raggioPiega + spessore) * Math.tan(angoloRad / 2);
 }
@@ -24,8 +23,8 @@ export function calcolaDettagliSegmenti(segments, spessore, raggioPiega, fattore
     const angolo = segmento.angle;
     let lunghezzaEffettiva = segmento.length;
 
-    // Logica semplice per modificare leggermente le lunghezze effettive
-    // Queste sono scelte tecniche da adattare in base alle necessità reali.
+    // Esempio di logica semplice per modificare leggermente la lunghezza effettiva
+    // Puoi adattare questa parte in base alle tue esigenze
     if (i > 0 && angolo >= 0 && angolo <= 80) {
       lunghezzaEffettiva = segmento.length;
     } else if (i === 0 || i === segments.length - 1) {
@@ -38,7 +37,8 @@ export function calcolaDettagliSegmenti(segments, spessore, raggioPiega, fattore
     let setback = null;
     let bendDeduction = null;
 
-    // Calcoliamo BA, SB, BD solo se abbiamo un angolo di piega, tipicamente su segmenti "interni".
+    // Calcolo BA, SB e BD solo se c'è un angolo di piega
+    // e non siamo al primissimo segmento (logica personalizzabile)
     if (i > 0 && angolo !== 0) {
       bendAllowance = calcolaBendAllowance(angolo, fattoreK, spessore, raggioPiega);
       setback = calcolaSetback(angolo, spessore, raggioPiega);
